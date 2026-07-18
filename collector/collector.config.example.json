@@ -1,0 +1,53 @@
+{
+  "_comment": "Template config for collector.py and snapshot_server.py. Copy to collector.config.json (gitignored) and fill in real values. No real hostnames/paths/repo names belong in this example file.",
+
+  "_comment_compose_projects": "Maps an abstract environment label (used in tool output, see 02-contratto-tool.md) to the real Docker Compose project name on the host. Only projects listed here are ever reported.",
+  "compose_projects": {
+    "prod": "my_app_prod",
+    "tests": "my_app_tests"
+  },
+
+  "_comment_backup_unit": "systemd unit name of the backup timer/service (restic-based).",
+  "backup_unit": "my-app-backup.service",
+
+  "_comment_jobs": "Static whitelist of ops scripts using the log+exit file convention. Allowed keys: deploy, restore-test, prepush-proof. Never derived from a directory scan.",
+  "jobs": {
+    "deploy": {
+      "log": "/var/log/my-app/deploy.log",
+      "exit": "/var/log/my-app/deploy.exit"
+    },
+    "restore-test": {
+      "log": "/var/log/my-app/restore-test.log",
+      "exit": "/var/log/my-app/restore-test.exit"
+    },
+    "prepush-proof": {
+      "log": "/var/log/my-app/prepush-proof.log",
+      "exit": "/var/log/my-app/prepush-proof.exit"
+    }
+  },
+
+  "_comment_github": "Optional. If omitted, the ci section of the snapshot is empty and an entry is added to errors[]. Token is read from the OPS_CONSOLE_GH_PAT environment variable, never from this file.",
+  "github": {
+    "owner": "my-github-owner",
+    "repo": "my-repo",
+    "workflows": {
+      "ci": "ci.yml",
+      "docker-build": "docker-build.yml"
+    }
+  },
+
+  "_comment_output_path": "Where collector.py writes snapshot.json (atomically) and snapshot_server.py reads it from.",
+  "output_path": "/var/lib/ops-console-mcp/snapshot.json",
+
+  "_comment_stale_after_seconds": "Used by the MCP server to flag a stale snapshot to the agent. Default 300 if omitted.",
+  "stale_after_seconds": 300,
+
+  "_comment_log_tail_lines": "Number of trailing lines read from each job log file. Default 40 if omitted.",
+  "log_tail_lines": 40,
+
+  "_comment_bind_address": "snapshot_server.py only. Must be a specific address (e.g. the host's Tailscale IP), never 0.0.0.0 or empty.",
+  "bind_address": "100.64.0.1",
+
+  "_comment_bind_port": "snapshot_server.py only.",
+  "bind_port": 8787
+}

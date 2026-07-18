@@ -1,0 +1,34 @@
+[Unit]
+Description=ops-console-mcp snapshot file server (read-only, Tailscale-only)
+Documentation=https://github.com/{{OWNER}}/{{REPO}}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
+WorkingDirectory={{INSTALL_DIR}}/collector
+ExecStart=/usr/bin/python3 {{INSTALL_DIR}}/collector/snapshot_server.py {{CONFIG_PATH}}
+EnvironmentFile=-{{INSTALL_DIR}}/collector/snapshot_server.env
+Restart=on-failure
+RestartSec=5
+
+# --- Hardening (see 03-sicurezza-threat-model.md section 8.4) ---
+NoNewPrivileges=true
+# This service only reads snapshot.json, it never writes anything.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+# No AF_UNIX needed here (no Docker access from this process): only the
+# inbound Tailscale bind (AF_INET/AF_INET6).
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+[Unit]
+Description=ops-console-mcp collector (one-shot snapshot generation)
+Documentation=https://github.com/{{OWNER}}/{{REPO}}
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
+WorkingDirectory={{INSTALL_DIR}}/collector
+ExecStart=/usr/bin/python3 {{INSTALL_DIR}}/collector/collector.py {{CONFIG_PATH}}
+EnvironmentFile=-{{INSTALL_DIR}}/collector/collector.env
+TimeoutStartSec=30
+
+# --- Hardening (see 03-sicurezza-threat-model.md section 8.4) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+# Only the snapshot output directory is writable. Keep this in sync with
+# output_path in the config file.
+ReadWritePaths={{SNAPSHOT_DIR}}
+# ProtectHome is set to "read-only" rather than "true": the log+exit files
+# read by collect_jobs() for the "deploy"/"restore-test"/"prepush-proof"
+# jobs may live under a home directory on some hosts. "read-only" still
+# blocks any write access under /home, /root, /run/user while allowing the
+# collector to read those job files if that is where they are configured.
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+# AF_UNIX is required for the Docker socket; AF_INET/AF_INET6 for the
+# outbound GitHub API calls.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
