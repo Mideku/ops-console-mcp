@@ -12,6 +12,14 @@ codebase. Any read-only status server can show you a container's state; the inte
 here is *how* it is made structurally impossible for a compromised or misled agent to do
 anything else.
 
+## Demo
+
+![Real tool-call transcript against a live self-hosted server](docs/demo.gif)
+
+Rendered from a real end-to-end session: live container/deploy state, a closed-enum
+rejection of a hostile argument, the absence of any write tool, and an externally
+verified audit hash chain.
+
 ## Architecture
 
 ```
