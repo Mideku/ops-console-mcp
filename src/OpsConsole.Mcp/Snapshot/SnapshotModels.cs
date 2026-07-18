@@ -85,6 +85,10 @@ public sealed class BackupSection
 
     [JsonPropertyName("healthcheck_outcome")]
     public string? HealthcheckOutcome { get; init; } // success|failure|unknown|null
+
+    // Best-effort human-readable text from the host's timer listing; informational only.
+    [JsonPropertyName("next_scheduled_at")]
+    public string? NextScheduledAt { get; init; }
 }
 
 public sealed class OpsScriptEntry
@@ -99,8 +103,9 @@ public sealed class OpsScriptEntry
     [JsonPropertyName("last_run_at")]
     public DateTimeOffset LastRunAt { get; init; }
 
+    // Recent log lines, one string per line — same shape as DockerContainer.LogTail.
     [JsonPropertyName("log_tail")]
-    public string LogTail { get; init; } = "";
+    public List<string> LogTail { get; init; } = [];
 }
 
 public sealed class CiSection

@@ -119,6 +119,7 @@ public sealed class InfraTools(ToolRuntime runtime)
                     status = backup.HealthcheckStatus,
                     outcome = backup.HealthcheckOutcome,
                 },
+                next_scheduled = backup.NextScheduledAt,
             });
         });
 

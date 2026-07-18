@@ -64,10 +64,32 @@ def _parse_docker_health(status_text: str) -> str:
     return "none"
 
 
+def _docker_log_tail(container_ref: str, log_tail_lines: int) -> list:
+    """Return the last `log_tail_lines` lines of `docker logs` for the given
+    real container reference (id or name), stdout+stderr combined in
+    chronological order, each line redacted. Raises on failure; the caller
+    is responsible for the per-container try/except + errors[] entry so one
+    bad container never aborts the whole collection."""
+    if log_tail_lines <= 0 or not container_ref:
+        return []
+    proc = subprocess.run(
+        ["docker", "logs", "--tail", str(log_tail_lines), container_ref],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # merge streams so ordering reflects reality,
+        # rather than capturing stdout/stderr separately and concatenating
+        # (which would lose interleaving order).
+        text=True,
+        timeout=DOCKER_TIMEOUT_SECONDS,
+        check=True,
+    )
+    return [redact(line) for line in proc.stdout.splitlines()]
+
+
 def collect_docker(config: dict, errors: list) -> dict:
     compose_projects = config.get("compose_projects", {})
     # real project name -> abstract label
     real_to_label = {real: label for label, real in compose_projects.items()}
+    log_tail_lines = config.get("log_tail_lines", DEFAULT_LOG_TAIL_LINES)
     result = {"projects": []}
 
     if not compose_projects:
@@ -108,15 +130,28 @@ def collect_docker(config: dict, errors: list) -> dict:
 
         label = real_to_label[project_real]
         service = labels.get("com.docker.compose.service") or container.get("Names", "unknown")
+        service_label = redact(service)
         state = (container.get("State") or "unknown").lower()
         health = _parse_docker_health(container.get("Status", ""))
 
+        # Real container id/name used only for the docker CLI call below;
+        # never stored in the snapshot (only the abstract service_label is).
+        container_ref = container.get("ID") or container.get("Names") or ""
+        try:
+            log_tail = _docker_log_tail(container_ref, log_tail_lines)
+        except Exception as exc:  # noqa: BLE001 - isolated per container, never crash
+            log_tail = []
+            errors.append(
+                redact(f"docker logs ({label}/{service_label}): {type(exc).__name__}: {exc}")
+            )
+
         by_label.setdefault(label, []).append(
             {
-                "name": redact(service),
+                "name": service_label,
                 "state": state,
                 "health": health,
                 "image": redact(container.get("Image", "")),
+                "log_tail": log_tail,
             }
         )
 
@@ -252,8 +287,20 @@ def collect_jobs(config: dict, errors: list) -> list:
 
 
 # --------------------------------------------------------------------------
-# d. GitHub API (CI runner status + recent workflow runs)
+# d. GitHub API (CI runner status + recent workflow runs + failed jobs)
 # --------------------------------------------------------------------------
+
+# GitHub attaches the runner's architecture as one of these fixed, read-only
+# labels (type "read-only", assigned by GitHub itself) rather than as a
+# top-level field of the runner object. Only these known-safe label names
+# are ever surfaced as "architecture" — arbitrary/custom labels (which could
+# contain a real hostname) are never inspected or included.
+_KNOWN_RUNNER_ARCHITECTURES = {"X64", "ARM64", "ARM", "ARM32", "X86"}
+
+# Per-workflow cap on how many of the most recent failed runs get their
+# failed_jobs populated (each requires one extra GitHub API call).
+MAX_FAILED_RUNS_WITH_JOBS = 3
+RECENT_RUNS_PER_WORKFLOW = 10
 
 
 def _github_get(url: str, token: str) -> dict:
@@ -270,8 +317,65 @@ def _github_get(url: str, token: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _redact_str(value):
+    """Apply redact() to string values sourced from the GitHub API before
+    they land in the snapshot; passes non-string values (None, int, bool)
+    through unchanged so nullable/typed fields keep their real type."""
+    if isinstance(value, str):
+        return redact(value)
+    return value
+
+
+def _runner_architecture(labels) -> str:
+    for label in labels or []:
+        if not isinstance(label, dict):
+            continue
+        if label.get("type") == "read-only" and label.get("name") in _KNOWN_RUNNER_ARCHITECTURES:
+            return label.get("name", "")
+    return ""
+
+
+def _normalize_runner(raw: dict) -> dict:
+    # Deliberately whitelist only id/status/busy/os/architecture. Never pass
+    # through "name" (the real, human-assigned runner name) or the raw
+    # "labels" array (custom labels can contain a real hostname).
+    return {
+        "id": _redact_str(str(raw.get("id", ""))),
+        "status": _redact_str(raw.get("status", "offline")),
+        "busy": bool(raw.get("busy", False)),
+        "os": _redact_str(raw.get("os", "")),
+        "architecture": _redact_str(_runner_architecture(raw.get("labels"))),
+    }
+
+
+def _collect_failed_jobs(base_url: str, run_id, token: str) -> list:
+    jobs_data = _github_get(f"{base_url}/actions/runs/{run_id}/jobs", token)
+    failed_jobs = []
+    for job in jobs_data.get("jobs", []):
+        if job.get("conclusion") != "failure":
+            continue
+        failed_steps = []
+        for step in job.get("steps", []) or []:
+            if step.get("conclusion") == "failure":
+                failed_steps.append(
+                    {
+                        "step_name": _redact_str(step.get("name", "")),
+                        "number": step.get("number"),
+                        "conclusion": _redact_str(step.get("conclusion")),
+                    }
+                )
+        failed_jobs.append(
+            {
+                "job_name": _redact_str(job.get("name", "")),
+                "conclusion": _redact_str(job.get("conclusion")),
+                "failed_steps": failed_steps,
+            }
+        )
+    return failed_jobs
+
+
 def collect_ci(config: dict, errors: list) -> dict:
-    result = {"runner_status": "unknown", "recent_runs": []}
+    result: dict = {"runners": [], "recent_runs": []}
 
     github_cfg = config.get("github")
     if not github_cfg:
@@ -294,42 +398,54 @@ def collect_ci(config: dict, errors: list) -> dict:
 
     try:
         runners_data = _github_get(f"{base_url}/actions/runners", token)
-        runners = runners_data.get("runners", [])
-        if any(r.get("status") == "online" for r in runners):
-            result["runner_status"] = "online"
-        elif runners:
-            result["runner_status"] = "offline"
-        else:
-            result["runner_status"] = "unknown"
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        errors.append(redact(f"github runners: {type(exc).__name__}: {exc}"))
-    except Exception as exc:  # noqa: BLE001
+        for raw_runner in runners_data.get("runners", []):
+            result["runners"].append(_normalize_runner(raw_runner))
+    except Exception as exc:  # noqa: BLE001 - isolated, degrades to errors[]
         errors.append(redact(f"github runners: {type(exc).__name__}: {exc}"))
 
     for workflow_name, workflow_file in workflows.items():
         try:
             runs_data = _github_get(
-                f"{base_url}/actions/workflows/{workflow_file}/runs?per_page=10",
+                f"{base_url}/actions/workflows/{workflow_file}/runs"
+                f"?per_page={RECENT_RUNS_PER_WORKFLOW}",
                 token,
             )
-            for run in runs_data.get("workflow_runs", []):
+            runs = runs_data.get("workflow_runs", [])
+            # Sort explicitly (most recent first) instead of trusting the
+            # API's default ordering, so "3 most recent failures" is correct
+            # regardless of what order GitHub actually returns runs in.
+            # run_started_at is ISO-8601 UTC, so lexicographic sort is
+            # equivalent to chronological sort.
+            runs.sort(key=lambda r: r.get("run_started_at") or "", reverse=True)
+            runs = runs[:RECENT_RUNS_PER_WORKFLOW]
+
+            failure_budget = MAX_FAILED_RUNS_WITH_JOBS
+            for run in runs:
+                run_id = run.get("id")
+                failed_jobs: list = []
+                if run.get("conclusion") == "failure" and failure_budget > 0:
+                    failure_budget -= 1
+                    try:
+                        failed_jobs = _collect_failed_jobs(base_url, run_id, token)
+                    except Exception as exc:  # noqa: BLE001 - isolated per run
+                        errors.append(
+                            redact(f"github jobs (run {run_id}): {type(exc).__name__}: {exc}")
+                        )
+
                 result["recent_runs"].append(
                     {
                         "workflow": workflow_name,
-                        "run_id": run.get("id"),
-                        "status": run.get("status"),
-                        "conclusion": run.get("conclusion"),
-                        "branch": redact(run.get("head_branch", "")),
+                        "branch": _redact_str(run.get("head_branch") or ""),
+                        "run_id": run_id,
+                        "status": _redact_str(run.get("status")),
+                        "conclusion": _redact_str(run.get("conclusion")),
                         "started_at": run.get("run_started_at"),
                         "updated_at": run.get("updated_at"),
                         "html_url": run.get("html_url"),
+                        "failed_jobs": failed_jobs,
                     }
                 )
-        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-            errors.append(
-                redact(f"github runs ({workflow_name}): {type(exc).__name__}: {exc}")
-            )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - isolated per workflow
             errors.append(
                 redact(f"github runs ({workflow_name}): {type(exc).__name__}: {exc}")
             )

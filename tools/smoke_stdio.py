@@ -132,7 +132,7 @@ def main() -> int:
     dotnet_path = find_dotnet(args.dotnet)
 
     env = os.environ.copy()
-    env["OPS_CONSOLE_SNAPSHOT_URL"] = "http://127.0.0.1:9/snapshot.json"
+    env.setdefault("OPS_CONSOLE_SNAPSHOT_URL", "http://127.0.0.1:9/snapshot.json")
     env.setdefault("OPS_CONSOLE_AUDIT_PATH", str(REPO_ROOT / "tools" / ".smoke_audit.jsonl"))
     env.setdefault("DOTNET_NOLOGO", "1")
     env.setdefault("DOTNET_CLI_TELEMETRY_OPTOUT", "1")

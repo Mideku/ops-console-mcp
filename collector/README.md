@@ -60,8 +60,8 @@ GitHub — this is enforced structurally, not by a runtime check (see
 - `OPS_CONSOLE_GH_PAT` — GitHub fine-grained personal access token with
   `actions:read` + `contents:read` scope, limited to the single monitored
   repository. Read by `collector.py` only. If unset, the `ci` section of
-  the snapshot stays `runner_status: "unknown"` and an entry is added to
-  `errors[]`.
+  the snapshot stays `runners: []` / `recent_runs: []` and an entry is
+  added to `errors[]`.
 - `OPS_CONSOLE_SNAPSHOT_TOKEN` — optional static token for
   `snapshot_server.py`. If set, every request must include a matching
   `X-Snapshot-Token` header, otherwise the server responds `401`.

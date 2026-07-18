@@ -114,7 +114,8 @@ public sealed class AuditLogger
 
             var line = JsonSerializer.Serialize(record, JsonOptions);
             using (var stream = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read))
-            using (var writer = new StreamWriter(stream, Encoding.UTF8))
+            // No BOM: the chain must be re-verifiable by any external tool hashing raw lines.
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 writer.WriteLine(line);
                 writer.Flush();
