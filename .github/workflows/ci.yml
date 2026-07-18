@@ -1,0 +1,130 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: dotnet build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore OpsConsole.Mcp.sln
+
+      - name: Build
+        run: dotnet build OpsConsole.Mcp.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test OpsConsole.Mcp.sln --configuration Release --no-build
+
+  python:
+    name: collector unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        working-directory: collector
+        run: python -m unittest discover -s tests -t .
+
+  gitleaks:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # required by gitleaks-action to comment findings on pull requests
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  mcp-scan:
+    name: MCP tool poisoning scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Build server (release, no scan-time rebuild)
+        run: dotnet build src/OpsConsole.Mcp/OpsConsole.Mcp.csproj --configuration Release
+
+      - name: Write minimal MCP client config
+        run: |
+          cat > mcp-scan-config.json <<'EOF'
+          {
+            "mcpServers": {
+              "ops-console": {
+                "type": "stdio",
+                "command": "dotnet",
+                "args": ["run", "--project", "src/OpsConsole.Mcp", "--configuration", "Release", "--no-build"],
+                "env": {
+                  "OPS_CONSOLE_SNAPSHOT_URL": "http://127.0.0.1:9/snapshot.json"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Install mcp-scan
+        run: pip install --disable-pip-version-check mcp-scan
+
+      # mcp-scan launches the server via the stdio command above and checks tool
+      # descriptions for tool-poisoning / prompt-injection patterns.
+      # --dangerously-run-mcp-servers skips the interactive consent prompt; the
+      # server never receives real credentials because OPS_CONSOLE_SNAPSHOT_URL
+      # points at an unreachable loopback placeholder.
+      #
+      # NOTE: the PyPI "mcp-scan" package now forwards to Snyk Agent Scan, and the
+      # full poisoning analysis requires a SNYK_TOKEN. A security gate must never
+      # pretend to pass: without the token we emit a loud warning and fall back to
+      # local tool enumeration (which still proves the server starts and exposes
+      # exactly its declared read-only tools).
+      - name: Run mcp-scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "::warning::SNYK_TOKEN not configured - full tool-poisoning analysis SKIPPED (local enumeration only)."
+            mcp-scan inspect --dangerously-run-mcp-servers mcp-scan-config.json
+          else
+            mcp-scan scan --dangerously-run-mcp-servers mcp-scan-config.json
+          fi

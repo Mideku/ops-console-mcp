@@ -91,10 +91,10 @@ public sealed class InfraTools(ToolRuntime runtime)
     }
 
     [McpServerTool(Name = "infra_get_last_backup_status"), Description(
-        "Returns outcome, timestamp and duration of the last backup run (systemd timer + " +
-        "restic), plus the external healthcheck ping outcome if configured. When NOT to use: " +
-        "for a history of multiple past runs (only the last one is exposed); to verify the " +
-        "integrity of individual restic snapshots (out of scope).")]
+        "Returns outcome, timestamp and duration of the last run of the host's scheduled " +
+        "backup unit, plus the external healthcheck ping outcome if configured. When NOT to " +
+        "use: for a history of multiple past runs (only the last one is exposed); to verify " +
+        "the integrity of the backup archives themselves (out of scope).")]
     public async Task<CallToolResult> GetLastBackupStatus(McpServer server) =>
         await runtime.RunAsync(server, "infra_get_last_backup_status", new Dictionary<string, object?>(), (snapshot, stale) =>
         {
