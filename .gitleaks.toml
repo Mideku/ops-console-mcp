@@ -1,12 +1,21 @@
 # Gitleaks configuration for this repository.
-# The allowlist below covers ONLY the deliberately fake credentials used as
-# fixtures by the redaction test suites. Keep it narrow: allowlist specific
-# fake values, never whole files or directories.
+#
+# The two allowlisted paths below are the redaction test suites: their entire
+# purpose is to hold fake, cryptographically inert secret-shaped strings
+# (dummy PEM blocks, ghp_ tokens, connection strings, healthcheck URLs) and
+# assert that the redactor removes them. Keep this allowlist to exactly these
+# files — never allowlist source, config or docs paths.
 [extend]
 useDefault = true
 
 [allowlist]
 description = "Deliberately fake credentials used as redaction-test fixtures"
+paths = [
+  '''tests/OpsConsole\.Mcp\.Tests/RedactorTests\.cs''',
+  '''collector/tests/test_collector\.py''',
+]
+# The fixture strings also appear in this config's own git history and in
+# assertion messages; allowlist the exact literals wherever they show up.
 regexes = [
   '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
   '''postgres://dbuser:hunter2@dbhost\.example\.com''',
