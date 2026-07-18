@@ -1,0 +1,13 @@
+# Gitleaks configuration for this repository.
+# The allowlist below covers ONLY the deliberately fake credentials used as
+# fixtures by the redaction test suites. Keep it narrow: allowlist specific
+# fake values, never whole files or directories.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deliberately fake credentials used as redaction-test fixtures"
+regexes = [
+  '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
+  '''postgres://dbuser:hunter2@dbhost\.example\.com''',
+]

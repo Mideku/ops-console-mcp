@@ -18,3 +18,10 @@ collector/collector.config.json
 
 # local .NET SDK (installed for this session; not committed)
 .dotnet/
+
+# python bytecode
+__pycache__/
+*.pyc
+
+# smoke test artifacts
+.smoke_audit.jsonl
