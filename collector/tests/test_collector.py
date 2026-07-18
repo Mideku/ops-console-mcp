@@ -589,6 +589,75 @@ class TestCiCollection(unittest.TestCase):
         self.assertEqual(result["recent_runs"], [])
         self.assertTrue(any("github runners" in e for e in errors))
 
+    def test_runner_repo_used_for_runners_call_workflow_runs_use_repo(self):
+        calls: list = []
+
+        def fake_get(url, token):
+            calls.append(url)
+            if "/actions/runners" in url:
+                return {"runners": []}
+            return {"workflow_runs": []}
+
+        config = self._config(workflows={"ci": "ci.yml"})
+        config["github"]["runner_repo"] = "some-runner-repo"
+        errors: list = []
+        with mock.patch.object(collector, "_github_get", side_effect=fake_get), mock.patch.dict(
+            os.environ, {"OPS_CONSOLE_GH_PAT": "fake-token"}
+        ):
+            collector.collect_ci(config, errors)
+
+        runners_calls = [u for u in calls if "/actions/runners" in u]
+        runs_calls = [u for u in calls if "/runs?per_page=" in u]
+        self.assertEqual(len(runners_calls), 1)
+        self.assertIn(
+            "/repos/some-owner/some-runner-repo/actions/runners", runners_calls[0]
+        )
+        self.assertEqual(len(runs_calls), 1)
+        self.assertIn(
+            "/repos/some-owner/some-repo/actions/workflows/ci.yml/runs", runs_calls[0]
+        )
+        self.assertEqual(errors, [])
+
+    def test_runner_repo_absent_falls_back_to_repo(self):
+        calls: list = []
+
+        def fake_get(url, token):
+            calls.append(url)
+            if "/actions/runners" in url:
+                return {"runners": []}
+            return {"workflow_runs": []}
+
+        config = self._config(workflows={"ci": "ci.yml"})
+        # no "runner_repo" key set: current/fallback behavior must be unchanged.
+        errors: list = []
+        with mock.patch.object(collector, "_github_get", side_effect=fake_get), mock.patch.dict(
+            os.environ, {"OPS_CONSOLE_GH_PAT": "fake-token"}
+        ):
+            collector.collect_ci(config, errors)
+
+        runners_calls = [u for u in calls if "/actions/runners" in u]
+        self.assertEqual(len(runners_calls), 1)
+        self.assertIn("/repos/some-owner/some-repo/actions/runners", runners_calls[0])
+        self.assertEqual(errors, [])
+
+    def test_runner_repo_error_is_labeled_with_runner_repo_not_repo(self):
+        def fake_get(url, token):
+            if "/actions/runners" in url:
+                raise urllib.error.URLError("boom")
+            return {"workflow_runs": []}
+
+        config = self._config(workflows={"ci": "ci.yml"})
+        config["github"]["runner_repo"] = "some-runner-repo"
+        errors: list = []
+        with mock.patch.object(collector, "_github_get", side_effect=fake_get), mock.patch.dict(
+            os.environ, {"OPS_CONSOLE_GH_PAT": "fake-token"}
+        ):
+            result = collector.collect_ci(config, errors)
+
+        self.assertEqual(result["runners"], [])
+        self.assertTrue(any("github runners (some-runner-repo)" in e for e in errors))
+        self.assertFalse(any("github runners (some-repo)" in e for e in errors))
+
 
 class TestSnapshotServer(unittest.TestCase):
     def test_rejects_wildcard_bind_address(self):

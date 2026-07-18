@@ -30,6 +30,8 @@
   "github": {
     "owner": "my-github-owner",
     "repo": "my-repo",
+    "_comment_runner_repo": "Optional. Set only when the self-hosted runner is registered under a different repository than 'repo' above, owned by the same 'owner' (e.g. a dedicated infra/runners repo). Workflow runs always come from 'repo'; only the runner status call uses 'runner_repo'. Falls back to 'repo' when omitted (current behavior). The PAT in OPS_CONSOLE_GH_PAT must have read access to both repositories when this is set.",
+    "runner_repo": "my-runner-repo",
     "workflows": {
       "ci": "ci.yml",
       "docker-build": "docker-build.yml"

@@ -50,6 +50,13 @@ GitHub — this is enforced structurally, not by a runtime check (see
    job file paths, GitHub owner/repo/workflow file names, output path,
    and (for the snapshot server) the Tailscale bind address and port.
    This file is not committed to the repository.
+   - `github.runner_repo` (optional) — set only if the self-hosted runner
+     is registered under a different repository than `github.repo`, owned
+     by the same `github.owner` (e.g. a dedicated infra/runners repo).
+     Only the runner status call uses it; workflow runs always come from
+     `github.repo`. Falls back to `github.repo` when omitted (current
+     behavior). The configured PAT must have read access to both
+     repositories when this is set.
 4. Render the systemd unit templates (replace `{{SERVICE_USER}}`,
    `{{INSTALL_DIR}}`, `{{CONFIG_PATH}}`, `{{SNAPSHOT_DIR}}`, `{{OWNER}}`,
    `{{REPO}}`) and install them under `/etc/systemd/system/`.
@@ -58,10 +65,11 @@ GitHub — this is enforced structurally, not by a runtime check (see
 ## Environment variables
 
 - `OPS_CONSOLE_GH_PAT` — GitHub fine-grained personal access token with
-  `actions:read` + `contents:read` scope, limited to the single monitored
-  repository. Read by `collector.py` only. If unset, the `ci` section of
-  the snapshot stays `runners: []` / `recent_runs: []` and an entry is
-  added to `errors[]`.
+  `actions:read` + `contents:read` scope, limited to the monitored
+  repository (`github.repo`) plus, only when `github.runner_repo` is set,
+  the runner's repository — both owned by the same account. Read by
+  `collector.py` only. If unset, the `ci` section of the snapshot stays
+  `runners: []` / `recent_runs: []` and an entry is added to `errors[]`.
 - `OPS_CONSOLE_SNAPSHOT_TOKEN` — optional static token for
   `snapshot_server.py`. If set, every request must include a matching
   `X-Snapshot-Token` header, otherwise the server responds `401`.

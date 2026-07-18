@@ -93,12 +93,14 @@ simply no code path that performs a write.
 
 The design follows the current MCP security best practices point by point:
 
-- **Least privilege.** The GitHub PAT used by the collector is fine-grained and scoped to a
-  single repository with `actions:read` + `contents:read`. One declared trade-off: the runner
+- **Least privilege.** The GitHub PAT used by the collector is fine-grained and scoped to
+  exactly the repositories it needs — the monitored repository, plus (only when
+  `github.runner_repo` is configured) the repository where the self-hosted runner is
+  registered — with `actions:read` + `contents:read`. One declared trade-off: the runner
   status endpoint (`GET /repos/{owner}/{repo}/actions/runners`) is only available under the
   `Administration` (read) permission on a fine-grained PAT, broader than the `actions:read`
-  scope used for run/job data — accepted because it is still read-only and still scoped to the
-  single monitored repository, not because it was overlooked.
+  scope used for run/job data — accepted because it is still read-only and still limited to
+  those explicitly selected repositories, not because it was overlooked.
 - **No token passthrough.** No tool accepts a token or credential as an argument. All upstream
   credentials (GitHub PAT, Docker group membership, the optional snapshot bearer token) are
   configured server-side and never reflected in any output.
@@ -147,8 +149,9 @@ standard library only, no third-party dependency).
 **Collector configuration.** Copy `collector/collector.config.example.json` to
 `collector.config.json` next to it (gitignored, never commit the real file) and fill in the real
 Compose project names, backup unit name, job log/exit paths, and GitHub owner/repo/workflow file
-names. The GitHub PAT itself is read from the `OPS_CONSOLE_GH_PAT` environment variable, never
-from the config file.
+names, plus an optional `github.runner_repo` (falls back to `github.repo`) if the self-hosted
+runner is registered under a different repository of the same owner. The GitHub PAT itself is
+read from the `OPS_CONSOLE_GH_PAT` environment variable, never from the config file.
 
 **systemd units.** `collector/systemd/ops-console-collector.service` (+ `.timer`) and
 `ops-console-snapshot.service` are templates with placeholders (`{{SERVICE_USER}}`,

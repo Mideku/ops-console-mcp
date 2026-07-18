@@ -388,6 +388,12 @@ def collect_ci(config: dict, errors: list) -> dict:
 
     owner = github_cfg.get("owner")
     repo = github_cfg.get("repo")
+    # Optional: the self-hosted runner may be registered under a different
+    # repository of the same owner than the one whose workflow runs are
+    # monitored (e.g. a dedicated infra/runners repo). Falls back to `repo`
+    # (current behavior) when absent. Workflow runs always use `repo`,
+    # never `runner_repo` — only the runners endpoint below is affected.
+    runner_repo = github_cfg.get("runner_repo") or repo
     workflows = github_cfg.get("workflows", {})
 
     if not owner or not repo:
@@ -395,13 +401,16 @@ def collect_ci(config: dict, errors: list) -> dict:
         return result
 
     base_url = f"https://api.github.com/repos/{owner}/{repo}"
+    runner_base_url = f"https://api.github.com/repos/{owner}/{runner_repo}"
 
     try:
-        runners_data = _github_get(f"{base_url}/actions/runners", token)
+        runners_data = _github_get(f"{runner_base_url}/actions/runners", token)
         for raw_runner in runners_data.get("runners", []):
             result["runners"].append(_normalize_runner(raw_runner))
     except Exception as exc:  # noqa: BLE001 - isolated, degrades to errors[]
-        errors.append(redact(f"github runners: {type(exc).__name__}: {exc}"))
+        errors.append(
+            redact(f"github runners ({runner_repo}): {type(exc).__name__}: {exc}")
+        )
 
     for workflow_name, workflow_file in workflows.items():
         try:
